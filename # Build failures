@@ -1,0 +1,55 @@
+# Build failures
+
+Had no issues creating a cluster. Need to make sure that the region on AWS console is
+set to that created with the clusters.
+
+Creating the stack:
+1. Create a new iAM role that has permission to access the cluster. This avoids using the root user..
+
+***
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+TRUST="{ \"Version\": \"2012-10-17\", \"Statement\": [ { \"Effect\": \"Allow\",  \"Principal\": { \"AWS\": \"arn:aws:iam::${ACCOUNT_ID}:root\" }, \"Action\":  \"sts:AssumeRole\" } ] }"
+
+aws iam create-role --role-name UdacityFlaskDeployCBKubectlRole --assume-role-policy-document "$TRUST" --output text --query 'Role.Arn'
+
+echo '{ "Version": "2012-10-17", "Statement": [ { "Effect": "Allow", "Action": [ "eks:Describe*", "ssm:GetParameters" ], "Resource": "*" } ] }' > ./iam-role-policy
+
+aws iam put-role-policy --role-name UdacityFlaskDeployCBKubectlRole --policy-name eks-describe --policy-document file://./iam-role-policy
+***
+
+
+2. "get" the kubeconfig file that contains current roles: kubectl get -n kube-system configmap/aws-auth -o yaml > ./aws-auth-patch.yml
+this saves into your project directory. Need to add edit and add the new role to allow code pipeline to access the cluster during creating etc..
+
+***
+
+add this below the existing role in the .yml file:
+- groups:
+      - system:masters
+      rolearn: arn:aws:iam::<YOUR_ACCOUNT_ID>:role/UdacityFlaskDeployCBKubectlRole
+      username: build
+***
+
+3. Patch the new file using: kubectl patch configmap/aws-auth -n kube-system --patch "$(cat ./aws-auth-patch.yml)"
+4. Add the nessesary info to the codepipeline.cfn.yml file including: github repo, username, kubectl role (newlycreated one)
+5. Push all changes to repo.
+6. create stack using the codepipeline.yml file. This file should automatically start a pipeline if the build is a success..
+7. SHOULD succeeed and create pipeline. 
+8. Test pipeline by changing project files and pushing to git. This should automatically create new build in cloud. Try posting or getting from the app. 
+
+
+
+* My build was always failing with a user needs to be logged in and authorization error.... 
+Believe that my login expired the first time this was happening because i had no kubectl cli access to see nodes, etc...
+
+Second time I believe that I had the auth-path file layout wrong. I had the new user entered by not in the right format so it was not being used correctly. 
+
+Formated correctly using:
+- groups:
+      - system:masters
+      rolearn: arn:aws:iam::<YOUR_ACCOUNT_ID>:role/UdacityFlaskDeployCBKubectlRole
+      username: build
+
+
+And the build succeeded. 
